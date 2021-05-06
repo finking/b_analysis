@@ -9,23 +9,22 @@ import time
 api_key = API_KEY
 api_secret = API_SECRET
 pathCSV = 'data/'
-maturities = ['210625', '210924']
+maturity = '210625'
 day_in_year = 365
 min_lot = 1
 price_range = 3  # количество знаков после запятой в цене.
 qty_range = 6  # количество знаков после запятой в кол-ве.
-spot_symbols = ['ETHUSD', 'LTCUSD', 'LINKUSD', 'ADAUSD', 'DOTUSD', 'BCHUSD', 'XRPUSD', 'BTCUSD']
+spot_symbols = ['ETHUSDT', 'BTCUSDT']
 client = Client(api_key, api_secret)
 
 
 def main():
     for spot_symbol in spot_symbols:
-        coin_futures_symbol_near = f'{spot_symbol}_{maturities[0]}'  # ближний фьючерс
-        coin_futures_symbol_further = f'{spot_symbol}_{maturities[1]}'  # дальний фьючерс
+        usdt_futures_symbol = f'{spot_symbol}_{maturity}'  # usdt фьючерс
         # Книга заявок для спотового рынка
         print(f"Загрузка котировок для {spot_symbol}")
         try:
-            spot_order_book = client.get_order_book(symbol=spot_symbol+'T')
+            spot_order_book = client.get_order_book(symbol=spot_symbol)
             spot_best_price = get_best_price(spot_order_book)
             print(f'Лучшая цена спота на покупку: {spot_best_price["bids"]}')
             print(f'Лучшая цена спота на продажу: {spot_best_price["asks"]}')
@@ -34,37 +33,29 @@ def main():
 
         # Книга заявок для фьючерсов с базой в coin
         try:
-            coin_best_price_near = get_coin_futures_price(coin_futures_symbol_near, 'ближнего')
-            coin_best_price_further = get_coin_futures_price(coin_futures_symbol_further, 'дальнего')
+            usdt_best_price = get_futures_price(usdt_futures_symbol)
         except Exception as e:
             print(e)
 
         # Вычисление количество дней до экспирации
-        period_near = get_period(maturities[0])
-        period_further = get_period(maturities[1])
+        period = get_period(maturity)
+        # period_further = get_period(maturities[1])
 
         # Вычисление доходности за период
         try:
-            yield_period_near = round(((coin_best_price_near["bids"] / spot_best_price["asks"]) - 1) * 100, 2)
-            yield_year_near = round(yield_period_near / period_near * day_in_year, 2)
-
-            yield_period_further = round(((coin_best_price_further["bids"] / spot_best_price["asks"]) - 1) * 100, 2)
-            yield_year_further = round(yield_period_further / period_further * day_in_year, 2)
+            yield_period = round(((usdt_best_price["bids"] / spot_best_price["asks"]) - 1) * 100, 2)
+            yield_year = round(yield_period / period * day_in_year, 2)
+            spread = round(((usdt_best_price["asks"] / usdt_best_price["bids"]) - 1) * 100, 2)
 
             data = {'time': datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
                     'spot_bids': spot_best_price["bids"],
                     'spot_ask': spot_best_price["asks"],
-                    'coin_bids_near': coin_best_price_near["bids"],
-                    'coin_asks_near': coin_best_price_near["asks"],
-                    'period_near': period_near,
-                    'yield_period_near': yield_period_near,
-                    'yield_year_near': yield_year_near,
-                    'space': '',
-                    'coin_bids_further': coin_best_price_further["bids"],
-                    'coin_asks_further': coin_best_price_further["asks"],
-                    'period_further': period_further,
-                    'yield_period_further': yield_period_further,
-                    'yield_year_further': yield_year_further,
+                    'future_bids': usdt_best_price["bids"],
+                    'future_asks': usdt_best_price["asks"],
+                    'period': period,
+                    'yield_period': yield_period,
+                    'yield_year': yield_year,
+                    'spread': spread
                     }
             write_google_sheets(spot_symbol, data)
         except Exception as e:
@@ -81,13 +72,12 @@ def get_period(maturity):
     return period
 
 
-def get_coin_futures_price(coin_futures_symbol, name):
-    coin_order_book = client.futures_coin_order_book(symbol=coin_futures_symbol)
-    # TODO разобраться как поменять cont (1 = 10USD) на coin (например на ETH)
-    coin_best_price = get_best_price(coin_order_book)
-    print(f'Лучшая цена {name} фьючерса Coin на покупку: {coin_best_price["bids"]}')
-    print(f'Лучшая цена {name} фьючерса Coin на продажу: {coin_best_price["asks"]}')
-    return coin_best_price
+def get_futures_price(coin_futures_symbol):
+    future_order_book = client.futures_order_book(symbol=coin_futures_symbol)
+    future_best_price = get_best_price(future_order_book)
+    print(f'Лучшая цена фьючерса на покупку: {future_best_price["bids"]}')
+    print(f'Лучшая цена фьючерса на продажу: {future_best_price["asks"]}')
+    return future_best_price
 
 
 def get_best_price(order_book):
@@ -118,17 +108,12 @@ def write_google_sheets(pair, data):
         ws.append_row([data['time'],
                         data['spot_bids'],
                         data['spot_ask'],
-                        data['coin_bids_near'],
-                        data['coin_asks_near'],
-                        data['period_near'],
-                        data['yield_period_near'],
-                        data['yield_year_near'],
-                        data['space'],
-                        data['coin_bids_further'],
-                        data['coin_asks_further'],
-                        data['period_further'],
-                        data['yield_period_further'],
-                        data['yield_year_further'],
+                        data['future_bids'],
+                        data['future_asks'],
+                        data['period'],
+                        data['yield_period'],
+                        data['yield_year'],
+                        data['spread']
                        ])
         print(f'Запись в Гугл.Таблицу по паре {pair} завершена успешна')
     except Exception as e:
