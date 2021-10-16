@@ -2,15 +2,16 @@ from config_dev import *
 from binance.client import Client
 from datetime import datetime
 # import csv
-import logging
+import logging.config
 from Gsheets import Gsheet
 import schedule
 import time
+from utils import logger_config
 
 api_key = API_KEY
 api_secret = API_SECRET
 pathData = 'data/'
-maturity = '210924'
+maturity = '211231'
 day_in_year = 365
 min_lot = 1
 price_range = 3  # количество знаков после запятой в цене.
@@ -18,30 +19,29 @@ qty_range = 6  # количество знаков после запятой в 
 spot_symbols = ['ETHUSDT', 'BTCUSDT']
 client = Client(api_key, api_secret)
 
-logging.basicConfig(filename=f'{pathData}log_{datetime.today().strftime("%d-%m-%Y")}.log',
-                    level=logging.DEBUG,
-                    format='%(asctime)s - %(message)s',
-                    datefmt='%d.%m.%Y %H:%M:%S')
+# Настройки логера
+logging.config.dictConfig(logger_config)
+logger = logging.getLogger('root')
 
 
 def main():
     for spot_symbol in spot_symbols:
         usdt_futures_symbol = f'{spot_symbol}_{maturity}'  # usdt фьючерс
         # Книга заявок для спотового рынка
-        print(f"Загрузка котировок для {spot_symbol}")
+        logger.info(f"Загрузка котировок для {spot_symbol}")
         try:
             spot_order_book = client.get_order_book(symbol=spot_symbol)
             spot_best_price = get_best_price(spot_order_book)
-            print(f'Лучшая цена спота на покупку: {spot_best_price["bids"]}')
-            print(f'Лучшая цена спота на продажу: {spot_best_price["asks"]}')
-        except Exception as e:
-            logging.error(f'При загрузке книги заявок для спота возникла ошибка: {e}')
+            logger.info(f'Лучшая цена спота на покупку: {spot_best_price["bids"]}')
+            logger.info(f'Лучшая цена спота на продажу: {spot_best_price["asks"]}')
+        except:
+            logger.exception(f'При загрузке книги заявок для спота возникла ошибка.')
 
         # Книга заявок для фьючерсов с базой в coin
         try:
             usdt_best_price = get_futures_price(usdt_futures_symbol)
-        except Exception as e:
-            logging.error(f'При загрузке книги заявок для фьючерсов возникла ошибка: {e}')
+        except:
+            logger.exception(f'При загрузке книги заявок для фьючерсов возникла ошибка.')
 
         # Вычисление количество дней до экспирации
         period = get_period(maturity)
@@ -63,10 +63,10 @@ def main():
                     'yield_year': yield_year,
                     'spread': spread
                     }
-            logging.info(data)
+            logger.debug(data)
             write_google_sheets(spot_symbol, data)
-        except Exception as e:
-            logging.error(f'Рачет доходности не удался! ERROR: {e}')
+        except:
+            logger.exception(f'Рачет доходности не удался! ERROR.')
     print('Ожидание времени запуска скрипта')
         # print(f"Запись в файл: {pathCSV}binance.csv")
         # write_csv(data)
@@ -82,8 +82,8 @@ def get_period(maturity):
 def get_futures_price(coin_futures_symbol):
     future_order_book = client.futures_order_book(symbol=coin_futures_symbol)
     future_best_price = get_best_price(future_order_book)
-    print(f'Лучшая цена фьючерса на покупку: {future_best_price["bids"]}')
-    print(f'Лучшая цена фьючерса на продажу: {future_best_price["asks"]}')
+    logger.info(f'Лучшая цена фьючерса на покупку: {future_best_price["bids"]}')
+    logger.info(f'Лучшая цена фьючерса на продажу: {future_best_price["asks"]}')
     return future_best_price
 
 
@@ -97,11 +97,11 @@ def get_best_price(order_book):
                 qty = qty + float(i[1])
                 if qty > min_lot:
                     price = round(float(i[0]), price_range)
-                    # logging.info(f'price {key}: {price}, qty: {round(qty, qty_range)}')
+                    logger.debug(f'price {key}: {price}, qty: {round(qty, qty_range)}')
                     break
             # Если пришедшее общее количество меньше минимального значения лота для торговли
             if qty < min_lot:
-                print('Недостаточное количество для торговли')
+                logger.error('Недостаточное количество для торговли')
                 break
         list_best_price[f'{key}'] = price
     return list_best_price
@@ -109,9 +109,10 @@ def get_best_price(order_book):
 
 # Запись в Гугл.Таблицы
 def write_google_sheets(pair, data):
-    sheet = Gsheet(pair)
-    ws = sheet.worksheet
     try:
+        sheet = Gsheet(pair)
+        ws = sheet.worksheet
+
         ws.append_row([data['time'],
                         data['spot_bids'],
                         data['spot_ask'],
@@ -122,10 +123,9 @@ def write_google_sheets(pair, data):
                         data['yield_year'],
                         data['spread']
                        ])
-        print(f'Запись в Гугл.Таблицу по паре {pair} завершена успешна')
-    except Exception as e:
-        print(f'Запись в Гугл.Таблицу по {pair} не удалась')
-        logging.error(f'При записи данных в Гугл.Таблицу возникла ошибка: {e}')
+        logger.info(f'Запись в Гугл.Таблицу по паре {pair} завершена успешна')
+    except:
+        logger.exception(f'Запись в Гугл.Таблицу по {pair} не удалась')
 
 
 if __name__ == '__main__':
